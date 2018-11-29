@@ -1,26 +1,26 @@
 {-# Language FlexibleContexts, NoMonomorphismRestriction#-} 
 module Main where
 
-import Prelude hiding (lookup, print)
+import Prelude hiding (lookup)
 import Control.Monad.Identity
 import Control.Monad.Except
 import Control.Monad.Reader
 import Control.Monad.State
 import Control.Monad.Writer
 import Data.Maybe
-
+import qualified Text.Read as R
 import qualified Data.Map as Map
 import qualified System.IO as System
 
 data Val = I Int | B Bool
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 data Expr = Const Val
   | Add Expr Expr | Sub Expr Expr  | Mul Expr Expr | Div Expr Expr
   | And Expr Expr | Or Expr Expr | Not Expr
   | Eq Expr Expr | Gt Expr Expr | Lt Expr Expr
   | Var String
-  deriving (Eq, Show)
+  deriving (Eq, Show, Read)
 
 -- statements
 data Statement = Assign String Expr
@@ -30,14 +30,14 @@ data Statement = Assign String Expr
                 | Seq Statement Statement
                 | Try Statement Statement
                 | Pass
-       deriving (Eq, Show)
+       deriving (Eq, Show, Read)
 
 type Name = String
 type Env = Map.Map Name Val
 
 lookup k t = case Map.lookup k t of
                Just x -> return x
-               Nothing -> fail ("Unkwon variable " ++ k)
+               Nothing -> throwError ("Unkwon variable " ++ k)
 
 type Eval a = ReaderT Env (ExceptT String Identity) a
 
@@ -86,35 +86,59 @@ eval (Var s) = do env <- ask
 
 
 -- RUN STUFF
-type Run a = StateT Env (ExceptT String IO) a
+type Run a = StateT ([Env], [Expr]) (ExceptT String IO) a
 
 set :: (Name, Val) -> Run ()
-set (s,i) = state $ (\table -> ((), Map.insert s i table))
+set (s,i) = state $ (\(table:tables, br) -> (() , ((Map.insert s i table):tables, br ) ) )
 
+setBreak :: Expr -> Run ()
+setBreak br = state $ (\(env, brs) -> ((), (env, br:brs)))
 
 exec :: Statement -> Run ()
-exec (Seq s0 s1) = do exec s0 >> exec s1
+exec (Seq s0 s1) = do exec s0 >> isBreak s1
 exec (Assign s v) = do
   liftIO $ System.print (Assign s v)
-  st <- get
+  (st:sts, br) <- get
   Right val <- return $ runEval st (eval v)
   set (s,val)
-  interpret
+
 exec (Print e) = do
   liftIO $ System.print (Print e)
-  st <- get
+  (st:sts, br) <- get
   Right val <- return $ runEval st (eval e)
   liftIO $ System.print val
-  interpret
-  return ()
 
-interpret :: Run ()
-interpret = do
-  st <- get
-  let m = Map.toList st
-  liftIO $ mapM_ System.print m
+isBreak :: Statement -> Run ()
+isBreak s = do
+  (st:sts, br) <- get
+  --[Eval Val]
+  let bools = map eval br
+  if any (isTrue st ) bools then interpret s
+    else interpret s
 
--- PROGRAM STUFF
+isTrue :: Env -> Eval Val -> Bool
+isTrue env ex = case runEval env ex of
+  Right (B True) -> True
+  _ -> False
+
+execCommand :: Command -> Statement -> Run ()
+execCommand C s = exec s >> (liftIO $ print "done")
+execCommand (Break e) s = (if isBoo e then setBreak e else liftIO $ putStrLn "Not valid boo") >> interpret s
+
+interpret :: Statement -> Run ()
+interpret prg = do
+  (st:sts, br) <- get
+  liftIO $ putStrLn "State:"
+  liftIO $ print st
+  liftIO $ putStr "> "
+  line <- liftIO $ R.readMaybe <$> getLine
+  case line of
+    (Just c) -> execCommand c prg
+    _ -> (liftIO $ putStrLn "Invalid input") >> interpret prg
+  --let m = Map.toList st
+  --liftIO $ mapM_ System.print m
+
+-- PROGRAM STUFF Writer a ()
 type Program = Writer Statement ()
 
 instance Semigroup Statement where
@@ -131,10 +155,9 @@ compile p = snd . runIdentity $ runWriterT p
 run :: Program -> IO ()
 run p = do
   let res = (compile p)
-  System.print res
-  result <- runExceptT $ (runStateT  (exec (compile p)) Map.empty)
+  print res
+  result <- runExceptT $ (runStateT  (interpret (compile p)) ([Map.empty], []) )
   return ()
-  -- 
   -- case result of
   --   Right ((), env) -> return ()
   --   Left exn -> System.print ("Uncaught exception: "++exn)
@@ -144,6 +167,23 @@ prog = do
   tell $ (Assign "arg" (Const (I 10)))
   tell $ (Assign "scratch" (Var "arg"))
   tell $ (Assign "arg" (Add (Var "arg") (Const (I 5))))
-  tell $ (Assign "test" (Sub (Var "arg") (Const (B False))))
+  tell $ (Assign "test" (Sub (Var "arg") (Const (I 7))))
+
+testprog :: Program
+testprog = read "test.prg"
+
+data Command = Break Expr | R | C
+
+instance Read Command where
+  readS = 
+
+-- type Breakpoint
+isBoo :: Expr -> Bool
+isBoo (Or _ _) = True
+isBoo (And _ _) = True
+isBoo (Gt _ _) = True
+isBoo (Lt _ _) = True
+isBoo (Eq _ _) = True
+isBoo _ = False
 
 main = run prog
