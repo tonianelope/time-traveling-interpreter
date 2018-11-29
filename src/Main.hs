@@ -88,7 +88,7 @@ type Step = (Env, Statement)
 -- past  future??
 type Location = ([Step], [Step])
 type IState = ([Step], Env, [Expr])
-type Run a = StateT IState (ExceptT Step (ExceptT String IO) ) a
+type Run a = StateT IState (ExceptT String IO) a
 
 -- setEnv :: (Name, Val) -> Run ()
 -- setEnv (s,i) = state $ (\ (_, )
@@ -97,15 +97,14 @@ type Run a = StateT IState (ExceptT Step (ExceptT String IO) ) a
 setStep :: (Name, Val) -> Statement -> IState -> IState
 setStep (n, v) s (past, env, br) = ((env, s):past, new_env, br) where new_env = Map.insert n v env
 
-setEnv :: Env -> IState -> IState
-setEnv env (p, _, br) = (p, env, br)
+moveBack :: Env -> IState -> IState
+moveBack env (p:ps, _, br) = (ps, env, br)
 
 getEnv :: IState -> Env
 getEnv (_, env ,_) = env
 
-getPast :: IState -> Except Step
-getPast (s:_, _, _) = return s
-getPast _ = throwError ("Can't step back further")
+getPast :: IState -> [Step]
+getPast (s, _, _) = s
 
 getBreakpoints :: IState -> [Expr]
 getBreakpoints (_, _, br) = br
@@ -128,10 +127,14 @@ exec (Print e) = do
   Right val <- return $ runEval env (eval e)
   liftIO $ System.print val
 
+
+
 execReverse :: Statement -> Run ()
-execReverse s = do
-  (env, stm) <-runExcept $ gets getPast
-  interpret s
+execReverse stm = do
+  past <- gets getPast
+  case past of
+    ((env, s):_) -> (modify $ moveBack env) >> interpret (Seq s stm)
+    _ -> (liftIO $ putStrLn "At the beginnig of the program - can't step back") >> interpret stm
 
   -- case a of
   --  Right stm -> interpret s
