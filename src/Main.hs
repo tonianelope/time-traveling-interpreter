@@ -84,52 +84,71 @@ eval (Lt e0 e1) = do evalib (<) e0 e1
 eval (Var s) = do env <- ask
                   lookup s env
 
-
+type Step = (Env, Statement)
+-- past  future??
+type Location = ([Step], [Step])
+type IState = ([Step], Env, [Expr])
 -- RUN STUFF
-type Run a = StateT ([Env], [Expr]) (ExceptT String IO) a
+type Run a = StateT IState (ExceptT String IO) a
 
-set :: (Name, Val) -> Run ()
-set (s,i) = state $ (\(table:tables, br) -> (() , ((Map.insert s i table):tables, br ) ) )
+-- setEnv :: (Name, Val) -> Run ()
+-- setEnv (s,i) = state $ (\ (_, )
+--                            (table:tables, br) -> (() , ((Map.insert s i table):table:tables, br ) ) )
 
-setBreak :: Expr -> Run ()
-setBreak br = state $ (\(env, brs) -> ((), (env, br:brs)))
+setStep :: (Name, Val) -> Statement -> IState -> IState
+setStep (n, v) s (past, env, br) = ((env, s):past, new_env, br) where new_env = Map.insert n v env
+
+getEnv :: IState -> Env
+getEnv (_, env ,_) = env
+
+getPast :: IState -> Except String Step
+getPast (s:_, _, _) = return s
+getPast _ = throwError ("Can't step back further")
+
+getBreakpoints :: IState -> [Expr]
+getBreakpoints (_, _, br) = br
+
+setBreak :: IState -> Expr -> IState
+setBreak (p, f, brs) br = (p, f, br:brs)
+--br = state $ (\(env, brs) -> ((), (env, br:brs)))
 
 exec :: Statement -> Run ()
-exec (Seq s0 s1) = do exec s0 >> isBreak s1
+exec (Seq s0 s1) = do exec s0 >> checkBreak s1
 exec (Assign s v) = do
   liftIO $ System.print (Assign s v)
-  (st:sts, br) <- get
-  Right val <- return $ runEval st (eval v)
-  set (s,val)
+  env <- gets getEnv
+  Right val <- return $ runEval env (eval v)
+  modify (setStep (s,val) (Assign s v))
 
 exec (Print e) = do
   liftIO $ System.print (Print e)
-  (st:sts, br) <- get
-  Right val <- return $ runEval st (eval e)
+  env <- gets getEnv
+  Right val <- return $ runEval env (eval e)
   liftIO $ System.print val
 
-isBreak :: Statement -> Run ()
-isBreak s = do
-  (st:sts, br) <- get
+checkBreak :: Statement -> Run ()
+checkBreak s = do
+  br <- gets getBreakpoints
   --[Eval Val]
+  env <- gets getEnv
   let bools = map eval br
-  if any (isTrue st ) bools then interpret s
-    else interpret s
+  if any (brEvalIsTrue env) (map eval br) then interpret s
+    else exec s--interpret s
 
-isTrue :: Env -> Eval Val -> Bool
-isTrue env ex = case runEval env ex of
+brEvalIsTrue :: Env -> Eval Val -> Bool
+brEvalIsTrue env ex = case runEval env ex of
   Right (B True) -> True
   _ -> False
 
 execCommand :: Command -> Statement -> Run ()
 execCommand C s = exec s >> (liftIO $ print "done")
-execCommand (Break e) s = (if isBoo e then setBreak e else liftIO $ putStrLn "Not valid boo") >> interpret s
+execCommand (Break e) s = (if isBoo e then modify (`setBreak` e) else liftIO $ putStrLn "Not valid boo") >> interpret s
 
 interpret :: Statement -> Run ()
 interpret prg = do
-  (st:sts, br) <- get
+  env <- gets getEnv
   liftIO $ putStrLn "State:"
-  liftIO $ print st
+  liftIO $ print env
   liftIO $ putStr "> "
   line <- liftIO $ R.readMaybe <$> getLine
   case line of
@@ -156,7 +175,7 @@ run :: Program -> IO ()
 run p = do
   let res = (compile p)
   print res
-  result <- runExceptT $ (runStateT  (interpret (compile p)) ([Map.empty], []) )
+  result <- runExceptT $ (runStateT  (interpret (compile p)) ([], Map.empty, []) )
   return ()
   -- case result of
   --   Right ((), env) -> return ()
@@ -172,10 +191,11 @@ prog = do
 testprog :: Program
 testprog = read "test.prg"
 
-data Command = Break Expr | R | C
+data Command = Break Expr | R | C deriving Read
 
-instance Read Command where
-  readS = 
+-- TODO optional read instances
+-- instance Read Command where
+--   readS = 
 
 -- type Breakpoint
 isBoo :: Expr -> Bool
