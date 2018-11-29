@@ -88,8 +88,7 @@ type Step = (Env, Statement)
 -- past  future??
 type Location = ([Step], [Step])
 type IState = ([Step], Env, [Expr])
--- RUN STUFF
-type Run a = StateT IState (ExceptT String IO) a
+type Run a = StateT IState (ExceptT Step (ExceptT String IO) ) a
 
 -- setEnv :: (Name, Val) -> Run ()
 -- setEnv (s,i) = state $ (\ (_, )
@@ -98,10 +97,13 @@ type Run a = StateT IState (ExceptT String IO) a
 setStep :: (Name, Val) -> Statement -> IState -> IState
 setStep (n, v) s (past, env, br) = ((env, s):past, new_env, br) where new_env = Map.insert n v env
 
+setEnv :: Env -> IState -> IState
+setEnv env (p, _, br) = (p, env, br)
+
 getEnv :: IState -> Env
 getEnv (_, env ,_) = env
 
-getPast :: IState -> Except String Step
+getPast :: IState -> Except Step
 getPast (s:_, _, _) = return s
 getPast _ = throwError ("Can't step back further")
 
@@ -118,13 +120,24 @@ exec (Assign s v) = do
   liftIO $ System.print (Assign s v)
   env <- gets getEnv
   Right val <- return $ runEval env (eval v)
-  modify (setStep (s,val) (Assign s v))
+  modify $ setStep (s,val) (Assign s v)
 
 exec (Print e) = do
   liftIO $ System.print (Print e)
   env <- gets getEnv
   Right val <- return $ runEval env (eval e)
   liftIO $ System.print val
+
+execReverse :: Statement -> Run ()
+execReverse s = do
+  (env, stm) <-runExcept $ gets getPast
+  interpret s
+
+  -- case a of
+  --  Right stm -> interpret s
+  --  Left msg -> (liftIO $ print msg) >> interpret s
+
+--_ (\(env, stm) -> (modify $ setEnv env) >> interpret (Seq stm s))
 
 checkBreak :: Statement -> Run ()
 checkBreak s = do
@@ -141,8 +154,12 @@ brEvalIsTrue env ex = case runEval env ex of
   _ -> False
 
 execCommand :: Command -> Statement -> Run ()
-execCommand C s = exec s >> (liftIO $ print "done")
-execCommand (Break e) s = (if isBoo e then modify (`setBreak` e) else liftIO $ putStrLn "Not valid boo") >> interpret s
+execCommand C s = exec s
+execCommand (Break e) s = (if isBoo e
+                           then modify (`setBreak` e)
+                           else liftIO $ putStrLn "Not valid boo")
+                          >> interpret s
+execCommand R s = execReverse s
 
 interpret :: Statement -> Run ()
 interpret prg = do
