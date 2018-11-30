@@ -87,7 +87,7 @@ eval (Var s) = do env <- ask
 type Step = (Env, Statement)
 -- past  future??
 type Location = ([Step], [Step])
-type IState = ([Step], Env, [Expr])
+type IState = ([Step], Env, [Expr], Command)
 type Run a = StateT IState (ExceptT String IO) a
 
 -- setEnv :: (Name, Val) -> Run ()
@@ -95,23 +95,29 @@ type Run a = StateT IState (ExceptT String IO) a
 --                            (table:tables, br) -> (() , ((Map.insert s i table):table:tables, br ) ) )
 
 setStep :: (Name, Val) -> Statement -> IState -> IState
-setStep (n, v) s (past, env, br) = ((env, s):past, new_env, br) where new_env = Map.insert n v env
+setStep (n, v) s (past, env, br, cmd) = ((env, s):past, Map.insert n v env, br, cmd)
 
 moveBack :: Env -> IState -> IState
-moveBack env (p:ps, _, br) = (ps, env, br)
+moveBack env (p:ps, _, br, cmd) = (ps, env, br, cmd)
 
 getEnv :: IState -> Env
-getEnv (_, env ,_) = env
+getEnv (_, env ,_, _) = env
 
 getPast :: IState -> [Step]
-getPast (s, _, _) = s
+getPast (s, _, _, _) = s
 
 getBreakpoints :: IState -> [Expr]
-getBreakpoints (_, _, br) = br
+getBreakpoints (_, _, br, _) = br
+
+getCmd :: IState -> Command
+getCmd (_,_,_,cmd) = cmd
 
 setBreak :: IState -> Expr -> IState
-setBreak (p, f, brs) br = (p, f, br:brs)
+setBreak (p, f, brs, cmd) br = (p, f, br:brs, cmd)
 --br = state $ (\(env, brs) -> ((), (env, br:brs)))
+
+setCmd :: Command -> IState -> IState
+setCmd cmd (p, env, brs, _) = (p, env, brs, cmd)
 
 exec :: Statement -> Run ()
 exec (Seq s0 s1) = do exec s0 >> checkBreak s1
@@ -159,8 +165,13 @@ checkBreak s = do
   --[Eval Val]
   env <- gets getEnv
   let bools = map eval br
-  if any (brEvalIsTrue env) (map eval br) then interpret s
-    else interpret s
+  if any (brEvalIsTrue env) (map eval br)
+    then interpret s
+    else do
+           cmd <- gets getCmd
+           case cmd of
+             S -> interpret s
+             _ -> exec s
 
 brEvalIsTrue :: Env -> Eval Val -> Bool
 brEvalIsTrue env ex = case runEval env ex of
@@ -168,13 +179,12 @@ brEvalIsTrue env ex = case runEval env ex of
   _ -> False
 
 execCommand :: Command -> Statement -> Run ()
-execCommand C s = exec s
 execCommand (Break e) s = (if isBoo e
                            then modify (`setBreak` e)
                            else liftIO $ putStrLn "Not valid boo")
                           >> interpret s
 execCommand R s = execReverse s
--- execCommand S s = TODO step
+execCommand c s = (modify $ setCmd c) >> exec s
 
 interpret :: Statement -> Run ()
 interpret prg = do
@@ -207,7 +217,7 @@ run :: Program -> IO ()
 run p = do
   let res = (compile p)
   print res
-  result <- runExceptT $ (runStateT  (interpret (compile p)) ([], Map.empty, []) )
+  result <- runExceptT $ (runStateT  (interpret (compile p)) ([], Map.empty, [], C) )
   return ()
   -- case result of
   --   Right ((), env) -> return ()
@@ -234,7 +244,7 @@ prog = do
 testprog :: Program
 testprog = read "test.prg"
 
-data Command = Break Expr | R | C | S deriving Read
+data Command = Break Expr | R | C | S deriving (Read, Eq)
 
 -- TODO optional read instances
 -- instance Read Command where
