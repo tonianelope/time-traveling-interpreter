@@ -127,7 +127,18 @@ exec (Print e) = do
   Right val <- return $ runEval env (eval e)
   liftIO $ System.print val
 
+exec (If ex st sf) = do
+  env <- gets getEnv
+--  Right val <- return $ runEval env exp
+  case runEval env (eval ex) of
+    Right (B True) -> exec st
+    _ -> exec sf
 
+exec (While ex stm) = do
+  env <- gets getEnv
+  case runEval env (eval ex) of
+    Right (B True) -> exec stm >> checkBreak (While ex stm)
+    _ -> return ()
 
 execReverse :: Statement -> Run ()
 execReverse stm = do
@@ -149,7 +160,7 @@ checkBreak s = do
   env <- gets getEnv
   let bools = map eval br
   if any (brEvalIsTrue env) (map eval br) then interpret s
-    else exec s--interpret s
+    else interpret s
 
 brEvalIsTrue :: Env -> Eval Val -> Bool
 brEvalIsTrue env ex = case runEval env ex of
@@ -163,6 +174,7 @@ execCommand (Break e) s = (if isBoo e
                            else liftIO $ putStrLn "Not valid boo")
                           >> interpret s
 execCommand R s = execReverse s
+-- execCommand S s = TODO step
 
 interpret :: Statement -> Run ()
 interpret prg = do
@@ -203,15 +215,26 @@ run p = do
 
 prog :: Program
 prog = do
-  tell $ (Assign "arg" (Const (I 10)))
-  tell $ (Assign "scratch" (Var "arg"))
-  tell $ (Assign "arg" (Add (Var "arg") (Const (I 5))))
-  tell $ (Assign "test" (Sub (Var "arg") (Const (I 7))))
+  tell $ (Assign "i" (Const (I 0)))
+  tell $ (While (Lt (Var "i") (Const (I 5)))
+          (Assign "i" (Add (Var "i") (Const (I 2))))
+          )
+  tell $ (Print (Var "i"))
+
+-- TODO handle error
+  -- tell $ (Assign "arg" (Const (I 0)))
+  -- tell $ (Assign "scratch" (Var "arg"))
+  -- tell $ (Assign "arg" (Add (Var "arg") (Const (I 5))))
+  -- tell $ (If (Lt (Const (I 15)) (Var "arg"))
+  --        (Assign "arg" (Const (I 8)))
+  --         (Assign "arg" (Const (I 15))))
+  -- tell $ (Assign "arg" (Const (I 8)))
+  -- tell $ (Assign "test" (Sub (Var "arg") (Const (I 7))))
 
 testprog :: Program
 testprog = read "test.prg"
 
-data Command = Break Expr | R | C deriving Read
+data Command = Break Expr | R | C | S deriving Read
 
 -- TODO optional read instances
 -- instance Read Command where
