@@ -14,7 +14,7 @@ import System.IO
 import qualified Text.Read as R
 import qualified Data.Map as Map
 
-data Command = Break Expr | R | C | S | H | P deriving (Read, Eq)
+data Command = Break Expr | R | C | S | H | L | Clear deriving (Read, Eq)
 
 type Step = (Env, Statement)
 -- IState : List of Steps taken, current Env, List of Breapoints, Current Run Command
@@ -29,7 +29,7 @@ helpText = "\tCMD - useage \n"
   ++ "\tH  - displays help \n"
   ++ "\tS  - step through program \n"
   ++ "\tC  - continue programm \n"
-  ++ "\tR  - reverse/ step back by 1 \n"
+  ++ "\tR  - reverse/ step back to last state change\n"
 --  ++ "               P  - print proram position"
   ++ "\tBreak (Bool Expr) - set breakpoint \n"
 
@@ -64,6 +64,9 @@ stateCmd (_,_,_,cmd) = cmd
 
 setBreak :: IState -> Expr -> IState
 setBreak (p, f, brs, cmd) br = (p, f, br:brs, cmd)
+
+clearBreak :: IState -> IState
+clearBreak (p, f, _, cmd) = (p, f, [], cmd)
 
 setCmd :: Command -> IState -> IState
 setCmd cmd (p, env, brs, _) = (p, env, brs, cmd)
@@ -136,6 +139,11 @@ execCommand (Break e) s = (if isBoo e
                            then modify (`setBreak` e)
                            else liftIO $ putStrLn "Not valid boo")
                           >> getRunCmd s
+execCommand L s = do
+  brs <- gets stateBreakpoints
+  liftIO $ mapM_ print brs
+  getRunCmd s
+execCommand Clear s = (modify clearBreak) >> getRunCmd s
 execCommand R s = execReverse s
 execCommand H s = (liftIO $ putStrLn helpText) >> getRunCmd s
 execCommand c s = (modify $ setCmd c) >> exec s
