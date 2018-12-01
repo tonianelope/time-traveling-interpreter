@@ -74,8 +74,7 @@ eval (Div e0 e1) = do evali div e0 e1
 eval (And e0 e1) = do evalb (&&) e0 e1
 eval (Or e0 e1) = do evalb (||) e0 e1
 
-eval (Not e0 ) = do evalb not2 e0 (Const (B True)) 
-                       where not2 a _ = not a -- hack, hack
+eval (Not e0 ) = do evalb (const not) (Const (B True)) e0
 
 eval (Eq e0 e1) = do evalib (==) e0 e1
 eval (Gt e0 e1) = do evalib (>) e0 e1

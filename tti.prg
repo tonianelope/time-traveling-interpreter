@@ -5,9 +5,7 @@
   (While (Not (Eq (Var "a") (Var "b")))
          (If (Gt (Var "a") (Var "b"))
            (Assign "a" (Sub (Var "a") (Var "b")))
-           (Seq
-             (Assign "b" (Sub (Var "b") (Const (I 10))))
-             (Assign "b" (Var "b")))
+           (Assign "b" (Sub (Var "b") (Const (I 10)) ))
          )
   ),
    (Try

@@ -45,7 +45,10 @@ isBoo _ = False
 setStep :: (Name, Val) -> Statement -> IState -> IState
 setStep (n, v) s (past, env, br, cmd) = ((env, s):past, Map.insert n v env, br, cmd)
 
-
+updateStep :: Statement -> IState -> IState
+updateStep s (past, env, br, cmd) = case past of
+  [] -> ([(env, s)], env, br, cmd)
+  ((penv, ps):steps) -> ((penv, ps `Seq` s):steps, env, br, cmd)
 
 moveBack :: Env -> IState -> IState
 moveBack env (p:ps, _, br, cmd) = (ps, env, br, cmd)
@@ -84,11 +87,13 @@ exec (Assign s v) = do
 exec (Print e) = do
   env <- gets stateEnv
   case runEval env (eval e) of
-    Right val -> liftIO $ print val
+    Right val -> (liftIO $ print val)
     Left msg -> throwError msg
+  modify $ updateStep (Print e)
 
 exec (If ex st sf) = do
   env <- gets stateEnv
+  modify $ updateStep (If ex st sf)
   case runEval env (eval ex) of
     Right (B True) -> flowControl st
     Right _ -> flowControl sf
@@ -96,12 +101,14 @@ exec (If ex st sf) = do
 
 exec (While ex stm) = do
   env <- gets stateEnv
+  modify $ updateStep (While ex stm)
   case runEval env (eval ex) of
     Right (B True) -> flowControl $ stm `Seq` (While ex stm)
     Right (B False) -> return ()
     Left msg -> throwError msg
 
 exec (Try try exept) = do
+  modify $ updateStep (Try try exept)
   exec try `catchError` (\msg -> (liftIO $ putStrLn msg) >> flowControl exept)
   return ()
 
@@ -159,7 +166,7 @@ printState :: Env -> Statement -> [Step] -> IO ()
 printState env stm past = do
     case past of
       [] -> putStr ""
-      (_, prev):_ -> putStr " past >> " >> print prev
+      (_, prev):_ -> putStr " past >> " >> (print $ getBaseStatement prev)
     putStr "State: "
     print $ Map.toList env
     putStr " next >> " >> (print $ getBaseStatement stm)
