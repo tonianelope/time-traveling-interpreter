@@ -102,7 +102,7 @@ exec (While ex stm) = do
     Left msg -> throwError msg
 
 exec (Try try exept) = do
-  exec try `catchError` (\msg -> (liftIO $ putStrLn msg) >> exec exept)
+  exec try `catchError` (\msg -> (liftIO $ putStrLn msg) >> flowControl exept)
   return ()
 
 execReverse :: Statement -> Run ()
@@ -200,15 +200,3 @@ main = do
   case mp of
     Just prg -> runInterpreter prg -- $ read "test.prg"
     Nothing -> putStrLn "Couldn't parse file"
-
-
-prg :: Program
-prg = [ (Assign "a" (Const (I 81))),
-  (Assign "b" (Const (I 153))),
-  (While (Not (Eq (Var "a") (Var "b")))
-         (If (Gt (Var "a") (Var "b"))
-           (Assign "a" (Sub (Var "a") (Var "b")))
-           (Assign "b" (Sub (Var "b") (Var "a")))
-          )
-  ),
-  (Print (Var "a"))]
