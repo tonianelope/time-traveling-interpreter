@@ -24,7 +24,7 @@ type Run a = StateT IState (ExceptT String IO) a
 type Program = [Statement]
 
 -- default interpreter file
-prgFile = "./src/tti.prg"
+prgFile = "tti.prg"
 helpText = "\tCMD - useage \n"
   ++ "\tH  - displays help \n"
   ++ "\tS  - step through program \n"
