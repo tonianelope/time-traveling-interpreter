@@ -9,7 +9,7 @@ stack exec tti <path to prg>
 Provided are a working gcd.prg and a wrong version tti.prg. They each try and calculate the greates common devisor between 98 and 56 - which is 14. Run them using:
 ```shell
 stack exec tti
-stack exec tti ./src/gcd.prg
+stack exec tti gcd.prg
 ```
 
 ## Commands
@@ -23,7 +23,7 @@ stack exec tti ./src/gcd.prg
 * Clear - clear all breakpoints
 
 ## The Flow
-At each breakpoint the interpreter show the last statement that updated the state (e.g past) and the next statement it will execute. 
+At each breakpoint the interpreter show the last statement that updated the state (e.g past) and the next statement it will execute.  
 Breakpoints stop the programm if the conditioned specified is True - else it continues.  
 When using step will continue by one statemnt - note: step will pause after evaluating an if or while expression before stepping into the boddy.  
 Reverse steps all the way back to the last command that modified the state (ignoring statements that did not affect state)  
