@@ -14,7 +14,7 @@ import System.IO
 import qualified Text.Read as R
 import qualified Data.Map as Map
 
-data Command = Break Expr | R | C | S | H deriving (Read, Eq)
+data Command = Break Expr | R | C | S | H | P deriving (Read, Eq)
 
 type Step = (Env, Statement)
 -- IState : List of Steps taken, current Env, List of Breapoints, Current Run Command
@@ -25,12 +25,13 @@ type Program = [Statement]
 
 -- default interpreter file
 prgFile = "./src/tti.prg"
-helpText = "CMD - useage \n"
-  ++ "H  - displays help \n"
-  ++ "S  - step through program \n"
-  ++ "C  - continue programm \n"
-  ++ "R  - reverse/ step back by 1 \n"
-  ++ "Break (Bool Expr) - set breakpoint \n"
+helpText = "\tCMD - useage \n"
+  ++ "\tH  - displays help \n"
+  ++ "\tS  - step through program \n"
+  ++ "\tC  - continue programm \n"
+  ++ "\tR  - reverse/ step back by 1 \n"
+--  ++ "               P  - print proram position"
+  ++ "\tBreak (Bool Expr) - set breakpoint \n"
 
 isBoo :: Expr -> Bool
 isBoo (Or _ _) = True
@@ -43,6 +44,8 @@ isBoo _ = False
 -- MODIFY ISTATE Functions
 setStep :: (Name, Val) -> Statement -> IState -> IState
 setStep (n, v) s (past, env, br, cmd) = ((env, s):past, Map.insert n v env, br, cmd)
+
+
 
 moveBack :: Env -> IState -> IState
 moveBack env (p:ps, _, br, cmd) = (ps, env, br, cmd)
@@ -68,7 +71,7 @@ setCmd cmd (p, env, brs, _) = (p, env, brs, cmd)
 -- EXEC Statements
 exec :: Statement -> Run ()
 exec Pass = return ()
-exec (Seq s0 s1) = do exec s0 >> flowControl s1
+exec (Seq s0 s1) = exec s0 >> flowControl s1
 exec (Assign s v) = do
   env <- gets stateEnv
   case runEval env (eval v) of
@@ -84,15 +87,15 @@ exec (Print e) = do
 exec (If ex st sf) = do
   env <- gets stateEnv
   case runEval env (eval ex) of
-    Right (B True) -> exec st
-    Right _ -> exec sf
+    Right (B True) -> flowControl st
+    Right _ -> flowControl sf
     Left msg -> throwError msg
 
 exec (While ex stm) = do
   env <- gets stateEnv
   case runEval env (eval ex) of
-    Right (B True) -> exec stm >> flowControl (While ex stm)
-    Right _ -> return ()
+    Right (B True) -> flowControl $ stm `Seq` (While ex stm)
+    Right (B False) -> return ()
     Left msg -> throwError msg
 
 exec (Try try exept) = do
@@ -137,27 +140,37 @@ execCommand R s = execReverse s
 execCommand H s = (liftIO $ putStrLn helpText) >> getRunCmd s
 execCommand c s = (modify $ setCmd c) >> exec s
 
+getBaseStatement :: Statement -> Statement
+getBaseStatement (Seq a _) = getBaseStatement a
+getBaseStatement (If expr _ _) = (If expr Pass Pass)
+getBaseStatement (While expr _) = (While expr Pass)
+getBaseStatement (Try a _) = getBaseStatement a
+getBaseStatement a = a
+
+printState :: Env -> Statement -> [Step] -> IO ()
+printState env stm past = do
+    case past of
+      [] -> putStr ""
+      (_, prev):_ -> putStr " past >> " >> print prev
+    putStr "State: "
+    print $ Map.toList env
+    putStr " next >> " >> (print $ getBaseStatement stm)
+
 getRunCmd :: Statement -> Run ()
 getRunCmd prg = do
   env <- gets stateEnv
-  liftIO $ do
-    putStr "State:"
-    print env
-    putStr "> "
+  past <- gets statePast
+  liftIO $ printState env prg past >> putStr "> "
   line <- liftIO $ R.readMaybe <$> getLine
   case line of
     (Just c) -> execCommand c prg
     _ -> (liftIO $ putStrLn "Invalid input - use H for help") >> getRunCmd prg
 
 compile :: Program -> Statement
-compile [] = Pass
-compile (s:ss) = (Seq s (compile ss))
-
+compile p = foldr Seq Pass p
 
 runInterpreter :: Program -> IO ()
 runInterpreter p = do
-  let x = compile p
-  print x
   result <- runExceptT $ (runStateT  (getRunCmd (compile p)) ([], Map.empty, [], C) )
   case result of
     Right ((), env) -> return ()
@@ -179,3 +192,15 @@ main = do
   case mp of
     Just prg -> runInterpreter prg -- $ read "test.prg"
     Nothing -> putStrLn "Couldn't parse file"
+
+
+prg :: Program
+prg = [ (Assign "a" (Const (I 81))),
+  (Assign "b" (Const (I 153))),
+  (While (Not (Eq (Var "a") (Var "b")))
+         (If (Gt (Var "a") (Var "b"))
+           (Assign "a" (Sub (Var "a") (Var "b")))
+           (Assign "b" (Sub (Var "b") (Var "a")))
+          )
+  ),
+  (Print (Var "a"))]
